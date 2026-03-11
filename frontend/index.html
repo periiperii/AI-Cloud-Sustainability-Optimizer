@@ -783,6 +783,10 @@
   </header>
 
   <!-- Phase Strip -->
+  <div class="phase-strip">
+    ■ PHASE 1 — AWS SCANNER + WASTE DETECTION + CARBON ESTIMATOR &nbsp;|&nbsp; PHASE 2: AI SUGGESTIONS (LANGCHAIN + RAG)
+    →
+  </div>
 
   <div class="container">
 
@@ -823,6 +827,11 @@
         <div class="kpi-label">Carbon Footprint</div>
         <div class="kpi-value yellow" id="kpiCarbon">—</div>
         <div class="kpi-change" id="kpiCarbonSub">kg CO₂ / month</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Sustainability Score</div>
+        <div class="kpi-value green" id="kpiScore">—</div>
+        <div class="kpi-change" id="kpiScoreSub">out of 100</div>
       </div>
     </div>
 
@@ -1051,11 +1060,48 @@
           total_kwh_month: 251.4,
           total_co2_kg_month: 95.3,
           equivalent_driving_km: 454,
-          renewable_energy_note: "Consider migrating to us-west-2 (Oregon) or ca-central-1 (Canada) for lower carbon emissions.",
+          equivalent_trees_needed: 4.5,
+          renewable_energy_note: "us-east-1 has a moderate carbon grid. Consider us-west-2 or eu-north-1 for cleaner compute.",
           breakdown: {
             ec2: { running_instances: 3, kwh_month: 248.5, co2_kg_month: 94.2 },
             ebs: { total_gb: 850, kwh_month: 0.24, co2_kg_month: 0.09 },
             s3: { bucket_count: 3, assumed_total_gb: 150, kwh_month: 0.04, co2_kg_month: 0.02 },
+            rds: { running_instances: 1, kwh_month: 2.5, co2_kg_month: 0.95 },
+            lambda: { function_count: 3, total_invocations_30d: 45230, kwh_month: 0.0012, co2_kg_month: 0.0005 },
+          },
+          potential_savings: {
+            potential_kwh_reduction: 182.3,
+            potential_co2_reduction_kg: 38.4,
+            equivalent_driving_km_saved: 183,
+          },
+          green_region_recommendation: {
+            current_region: "us-east-1",
+            current_emission_factor: 0.379,
+            recommended_region: "eu-north-1",
+            recommended_region_name: "Stockholm",
+            recommended_emission_factor: 0.008,
+            potential_co2_reduction_pct: 97.9,
+            potential_co2_saved_kg: 93.3,
+            new_estimated_co2_kg: 2.0,
+            already_green: false,
+            message: "Migrating to Stockholm (eu-north-1) could reduce emissions by 97.9%.",
+          },
+          sustainability_score: {
+            score: 54,
+            grade: "C",
+            label: "Needs Improvement",
+            breakdown: {
+              region_cleanliness: 14.2,
+              waste_reduction: 12.0,
+              carbon_efficiency: 18.5,
+              lambda_hygiene: 9.3,
+            },
+            max_scores: {
+              region_cleanliness: 30,
+              waste_reduction: 30,
+              carbon_efficiency: 25,
+              lambda_hygiene: 15,
+            }
           }
         }
       };
@@ -1096,6 +1142,13 @@
 
       document.getElementById('kpiCarbon').textContent = `${data.carbon.total_co2_kg_month}`;
       document.getElementById('kpiCarbonSub').textContent = `kg CO₂/mo ≈ ${data.carbon.equivalent_driving_km} km driving`;
+
+      const score = data.carbon.sustainability_score;
+      if (score) {
+        document.getElementById('kpiScore').textContent = `${score.score}`;
+        document.getElementById('kpiScore').className = `kpi-value ${score.score >= 65 ? 'green' : score.score >= 40 ? 'yellow' : 'red'}`;
+        document.getElementById('kpiScoreSub').textContent = `${score.grade} · ${score.label}`;
+      }
     }
 
     function renderIssues(issues) {
@@ -1128,10 +1181,14 @@
       const b = carbon.breakdown;
       const maxKwh = Math.max(b.ec2.kwh_month, b.ebs.kwh_month + 1, b.s3.kwh_month + 1, 1);
 
+      const score = carbon.sustainability_score;
+      const savings = carbon.potential_savings;
+      const greenRec = carbon.green_region_recommendation;
+
       el.innerHTML = `
     <div style="margin-bottom:20px">
       <div style="font-family:var(--mono);font-size:32px;font-weight:700;color:var(--yellow)">${total} <span style="font-size:16px;color:var(--text-dim)">kg CO₂/mo</span></div>
-      <div style="font-size:12px;color:var(--text-dim);margin-top:4px">≈ ${carbon.equivalent_driving_km} km driven · ${carbon.emission_factor_kg_per_kwh} kg CO₂/kWh</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:4px">≈ ${carbon.equivalent_driving_km} km driven · 🌳 ${carbon.equivalent_trees_needed || '?'} trees/yr to offset</div>
     </div>
     <div class="carbon-breakdown">
       <div class="carbon-row">
@@ -1153,6 +1210,28 @@
     <div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
       <div style="font-size:11px;color:var(--text-dim);line-height:1.6">💡 ${carbon.renewable_energy_note}</div>
     </div>
+    ${savings && savings.potential_co2_reduction_kg > 0 ? `
+    <div style="margin-top:12px;padding:12px;background:rgba(34,197,94,0.08);border-radius:8px;border:1px solid rgba(34,197,94,0.2)">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--green);margin-bottom:4px">🌿 POTENTIAL CARBON SAVINGS</div>
+      <div style="font-size:13px;color:var(--text)">Fix waste issues → save <strong style="color:var(--green)">${savings.potential_co2_reduction_kg} kg CO₂/mo</strong></div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:3px">≈ ${savings.equivalent_driving_km_saved} km of driving avoided</div>
+    </div>` : ''}
+    ${greenRec && !greenRec.already_green ? `
+    <div style="margin-top:12px;padding:12px;background:rgba(56,189,248,0.08);border-radius:8px;border:1px solid rgba(56,189,248,0.2)">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--blue);margin-bottom:4px">🌍 GREEN REGION RECOMMENDATION</div>
+      <div style="font-size:13px;color:var(--text)">${greenRec.message}</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${greenRec.current_emission_factor} → ${greenRec.recommended_emission_factor} kg CO₂/kWh · saves ${greenRec.potential_co2_saved_kg} kg/mo</div>
+    </div>` : ''}
+    ${score ? `
+    <div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-bottom:10px">SCORE BREAKDOWN</div>
+      ${Object.entries(score.breakdown).map(([k, v]) => `
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px">
+          <span style="color:var(--text-dim);text-transform:capitalize">${k.replace(/_/g, ' ')}</span>
+          <span style="font-family:var(--mono);color:var(--green)">${v} / ${score.max_scores[k]}</span>
+        </div>
+      `).join('')}
+    </div>` : ''}
   `;
     }
 

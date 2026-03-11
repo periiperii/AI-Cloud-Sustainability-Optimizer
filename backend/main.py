@@ -1,12 +1,9 @@
 """
 AI Cloud Sustainability Optimizer - FastAPI Backend
-Phase 1: AWS Scanner + Waste Detection Engine
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import uvicorn
 from datetime import datetime
 
 from scanner.aws_scanner import AWSScanner
@@ -19,7 +16,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow frontend to call backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,19 +26,12 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {
-        "message": "AI Cloud Sustainability Optimizer API",
-        "status": "running",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return {"message": "AI Cloud Sustainability Optimizer API", "status": "running",
+            "timestamp": datetime.utcnow().isoformat()}
 
 
 @app.get("/scan")
 def scan_infrastructure(region: str = "us-east-1"):
-    """
-    Scan AWS infrastructure in the given region.
-    Returns EC2, EBS, S3 summary.
-    """
     try:
         scanner = AWSScanner(region=region)
         results = scanner.scan_all()
@@ -53,17 +42,11 @@ def scan_infrastructure(region: str = "us-east-1"):
 
 @app.get("/waste")
 def detect_waste(region: str = "us-east-1"):
-    """
-    Run waste detection engine on scanned resources.
-    Returns list of issues and recommendations.
-    """
     try:
         scanner = AWSScanner(region=region)
         resources = scanner.scan_all()
-
         detector = WasteDetector()
         issues = detector.detect(resources)
-
         return {
             "status": "success",
             "total_issues": len(issues),
@@ -76,16 +59,13 @@ def detect_waste(region: str = "us-east-1"):
 
 @app.get("/carbon")
 def estimate_carbon(region: str = "us-east-1"):
-    """
-    Estimate carbon footprint of AWS infrastructure.
-    """
     try:
         scanner = AWSScanner(region=region)
         resources = scanner.scan_all()
-
+        detector = WasteDetector()
+        issues = detector.detect(resources)
         estimator = CarbonEstimator(region=region)
-        carbon = estimator.estimate(resources)
-
+        carbon = estimator.estimate(resources, waste_issues=issues)
         return {"status": "success", "region": region, "carbon": carbon}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -93,9 +73,6 @@ def estimate_carbon(region: str = "us-east-1"):
 
 @app.get("/report")
 def full_report(region: str = "us-east-1"):
-    """
-    Full sustainability report: scan + waste + carbon.
-    """
     try:
         scanner = AWSScanner(region=region)
         resources = scanner.scan_all()
@@ -104,7 +81,7 @@ def full_report(region: str = "us-east-1"):
         issues = detector.detect(resources)
 
         estimator = CarbonEstimator(region=region)
-        carbon = estimator.estimate(resources)
+        carbon = estimator.estimate(resources, waste_issues=issues)
 
         return {
             "status": "success",
@@ -114,13 +91,9 @@ def full_report(region: str = "us-east-1"):
             "waste": {
                 "total_issues": len(issues),
                 "estimated_monthly_savings_usd": sum(i.get("savings_usd", 0) for i in issues),
-                "issues": issues
+                "issues": issues,
             },
-            "carbon": carbon
+            "carbon": carbon,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
