@@ -27,3 +27,6 @@ Thumbs.db
 
 #Secret files
 secrets/*
+
+# Gemini API keys
+.env
