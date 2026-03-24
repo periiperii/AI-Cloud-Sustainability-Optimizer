@@ -1,23 +1,22 @@
 """
 AI Advisor - Phase 2
-Uses Google Gemini (new google-genai SDK) to answer questions
+Uses Groq (free tier, fast inference) to answer questions
 about your AWS infrastructure using RAG.
 """
 
 import os
-from google import genai
-from google.genai import types
+from groq import Groq
 from typing import Optional
 
 
 class AIAdvisor:
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError(
-                "GEMINI_API_KEY not set in environment variables.")
-        self.client = genai.Client(api_key=api_key)
-        self.model = "gemini-2.0-flash-lite"
+                "GROQ_API_KEY not set in environment variables.")
+        self.client = Groq(api_key=api_key)
+        self.model = "llama-3.3-70b-versatile"
 
     def build_context(self, report: dict) -> str:
         """Convert scan report into text context for RAG."""
@@ -134,6 +133,7 @@ class AIAdvisor:
     def ask(self, question: str, report: dict, chat_history: list = None) -> str:
         """
         Answer a question using the infrastructure report as RAG context.
+        Uses Groq for fast, reliable inference with generous free tier.
         """
         context = self.build_context(report)
 
@@ -145,35 +145,45 @@ If asked for recommendations, prioritize by cost savings and carbon impact.
 
 {context}
 
+## RESPONSE FORMAT REQUIREMENTS:
+- Use clean bullet points (•) for lists, one item per line
+- Use bold for key metrics (**value**)
+- Group related items with sub-bullets (use -) 
+- No verbose explanations unless explicitly requested
+- Max 150 words for most responses
+- Break long actionable steps into numbered lists
+- Always include specific values/IDs when mentioning resources
+
 Answer the user's question based on the infrastructure data above.
 If the question is not related to their infrastructure, still answer helpfully as a cloud expert.
-Format your response clearly. Use bullet points for lists. Keep it under 200 words unless asked for detail.
 """
 
-        # Build conversation history
-        history = []
+        # Build conversation history for Groq (OpenAI-compatible format)
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
+        
+        # Add chat history (last 6 messages)
         if chat_history:
             for msg in chat_history[-6:]:
-                role = "user" if msg["role"] == "user" else "model"
-                history.append(
-                    types.Content(role=role, parts=[
-                                  types.Part(text=msg["content"])])
-                )
+                messages.append({
+                    "role": msg["role"],  # "user" or "assistant"
+                    "content": msg["content"]
+                })
 
-        # Add current question with system context
-        history.append(
-            types.Content(
-                role="user",
-                parts=[types.Part(
-                    text=f"{system_prompt}\n\nUser question: {question}")]
-            )
-        )
+        # Add current question
+        messages.append({
+            "role": "user",
+            "content": question
+        })
 
         try:
-            response = self.client.models.generate_content(
+            response = self.client.chat.completions.create(
                 model=self.model,
-                contents=history,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1024,
             )
-            return response.text
+            return response.choices[0].message.content
         except Exception as e:
             return f"AI advisor error: {str(e)}"

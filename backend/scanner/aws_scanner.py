@@ -10,9 +10,37 @@ from typing import Optional
 
 
 class AWSScanner:
-    def __init__(self, region: str = "us-east-1", profile: Optional[str] = None):
+    def __init__(
+        self,
+        region: str = "us-east-1",
+        profile: Optional[str] = None,
+        access_key_id: Optional[str] = None,
+        secret_access_key: Optional[str] = None,
+        session_token: Optional[str] = None,
+    ):
+        """
+        Initialize AWS Scanner.
+        
+        Args:
+            region: AWS region to scan
+            profile: AWS profile name (for profile-based auth)
+            access_key_id: AWS Access Key ID (for credential-based auth)
+            secret_access_key: AWS Secret Access Key (for credential-based auth)
+            session_token: Optional AWS Session Token (for temporary credentials)
+        """
         self.region = region
-        session = boto3.Session(profile_name=profile, region_name=region)
+        
+        # Create session with credentials if provided, otherwise use profile or env vars
+        if access_key_id and secret_access_key:
+            session = boto3.Session(
+                aws_access_key_id=access_key_id,
+                aws_secret_access_key=secret_access_key,
+                aws_session_token=session_token,
+                region_name=region,
+            )
+        else:
+            session = boto3.Session(profile_name=profile, region_name=region)
+        
         self.ec2 = session.client("ec2", region_name=region)
         self.s3 = session.client("s3")
         self.cloudwatch = session.client("cloudwatch", region_name=region)

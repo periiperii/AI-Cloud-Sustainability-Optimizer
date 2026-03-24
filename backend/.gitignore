@@ -27,6 +27,8 @@ Thumbs.db
 
 #Secret files
 secrets/*
+models.py
+docs.txt
 
 # Gemini API keys
 .env

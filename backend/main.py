@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
+import boto3
+
 load_dotenv()
 
 
@@ -30,22 +32,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory report cache (last scan result) ─────────────────────────────────
-# In production, store in Redis or a database
-_cached_report: dict = {}
-
-
 # ── Request Models ────────────────────────────────────────────────────────────
+
+class AWSCredentials(BaseModel):
+    """AWS credentials for per-request authentication"""
+    access_key_id: str
+    secret_access_key: str
+    session_token: Optional[str] = None
+
 
 class ChatMessage(BaseModel):
     role: str       # "user" or "assistant"
     content: str
 
 
+class ScanRequest(BaseModel):
+    """Request for scanning infrastructure with optional AWS credentials"""
+    region: Optional[str] = "us-east-1"
+    credentials: Optional[AWSCredentials] = None
+
+
 class ChatRequest(BaseModel):
     question: str
     history: Optional[List[ChatMessage]] = []
     region: Optional[str] = "us-east-1"
+    credentials: Optional[AWSCredentials] = None
+
+
+# ── In-memory report cache (last scan result) ─────────────────────────────────
+# In production, store in Redis or a database
+_cached_report: dict = {}
+
+
+# ── Helper Functions ──────────────────────────────────────────────────────────
+
+def get_aws_scanner(region: str = "us-east-1", credentials: Optional[AWSCredentials] = None):
+    """
+    Create an AWSScanner instance with optional user-provided credentials.
+    If no credentials provided, uses environment variables (default boto3 behavior).
+    """
+    if credentials:
+        return AWSScanner(
+            region=region,
+            access_key_id=credentials.access_key_id,
+            secret_access_key=credentials.secret_access_key,
+            session_token=credentials.session_token,
+        )
+    else:
+        return AWSScanner(region=region)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -60,20 +94,22 @@ def root():
     }
 
 
-@app.get("/scan")
-def scan_infrastructure(region: str = "us-east-1"):
+@app.post("/api/scan")
+@app.post("/scan")
+def scan_infrastructure(request: ScanRequest):
     try:
-        scanner = AWSScanner(region=region)
+        scanner = get_aws_scanner(request.region, request.credentials)
         results = scanner.scan_all()
-        return {"status": "success", "region": region, "data": results}
+        return {"status": "success", "region": request.region, "data": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/waste")
-def detect_waste(region: str = "us-east-1"):
+@app.post("/api/waste")
+@app.post("/waste")
+def detect_waste(request: ScanRequest):
     try:
-        scanner = AWSScanner(region=region)
+        scanner = get_aws_scanner(request.region, request.credentials)
         resources = scanner.scan_all()
         detector = WasteDetector()
         issues = detector.detect(resources)
@@ -87,37 +123,39 @@ def detect_waste(region: str = "us-east-1"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/carbon")
-def estimate_carbon(region: str = "us-east-1"):
+@app.post("/api/carbon")
+@app.post("/carbon")
+def estimate_carbon(request: ScanRequest):
     try:
-        scanner = AWSScanner(region=region)
+        scanner = get_aws_scanner(request.region, request.credentials)
         resources = scanner.scan_all()
         detector = WasteDetector()
         issues = detector.detect(resources)
-        estimator = CarbonEstimator(region=region)
+        estimator = CarbonEstimator(region=request.region)
         carbon = estimator.estimate(resources, waste_issues=issues)
-        return {"status": "success", "region": region, "carbon": carbon}
+        return {"status": "success", "region": request.region, "carbon": carbon}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/report")
-def full_report(region: str = "us-east-1"):
+@app.post("/api/report")
+@app.post("/report")
+def full_report(request: ScanRequest):
     global _cached_report
     try:
-        scanner = AWSScanner(region=region)
+        scanner = get_aws_scanner(request.region, request.credentials)
         resources = scanner.scan_all()
 
         detector = WasteDetector()
         issues = detector.detect(resources)
 
-        estimator = CarbonEstimator(region=region)
+        estimator = CarbonEstimator(region=request.region)
         carbon = estimator.estimate(resources, waste_issues=issues)
 
         report = {
             "status": "success",
             "generated_at": datetime.utcnow().isoformat(),
-            "region": region,
+            "region": request.region,
             "infrastructure": resources,
             "waste": {
                 "total_issues": len(issues),
@@ -135,12 +173,14 @@ def full_report(region: str = "us-east-1"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/chat")
 @app.post("/chat")
 def chat(request: ChatRequest):
     """
     AI chat endpoint.
     Uses the cached scan report as RAG context for Gemini.
     If no scan has been run yet, returns a helpful message.
+    Accepts optional AWS credentials (for future integration with live data).
     """
     global _cached_report
 
